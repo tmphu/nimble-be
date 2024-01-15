@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { GoogleScraperModule } from './google-scraper/google-scraper.module';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
-  imports: [],
-  controllers: [AppController],
-  providers: [AppService],
+  imports: [ConfigModule.forRoot({ isGlobal: true }), GoogleScraperModule],
+  controllers: [],
+  providers: [],
 })
 export class AppModule {}

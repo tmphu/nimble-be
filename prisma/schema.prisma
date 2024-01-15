@@ -10,3 +10,30 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Upload {
+  id            Int            @id @default(autoincrement())
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  fileName      String         @map("file_name") @db.VarChar(255)
+  filePath      String         @map("file_path") @db.VarChar(1000)
+  status        String         @db.VarChar(50)
+  searchResults SearchResult[]
+
+  @@map("upload")
+}
+
+model SearchResult {
+  id               Int       @id @default(autoincrement())
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  keyword          String    @db.VarChar(1000)
+  searchedAt       DateTime? @map("searched_at")
+  searchEngine     String    @map("search_engine") @db.VarChar(100)
+  status           String    @db.VarChar(50)
+  result           Json?
+  pageSnapshotPath String?   @map("page_snapshot_path") @db.VarChar(1000)
+  uploadId         Int       @map("upload_id")
+  upload           Upload    @relation(fields: [uploadId], references: [id])
+
+  @@map("search_result")
+}
