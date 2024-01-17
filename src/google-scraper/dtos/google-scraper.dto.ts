@@ -14,9 +14,41 @@ export enum SearchEngine {
   Google = 'https://google.com',
 }
 
-export class CreateUploadDto {
+export class Upload {
+  id: number;
+  createdAt: Date;
+  updatedAt: Date;
   fileName: string;
   filePath: string;
+  status: string;
+}
+
+export class CreateUploadRequestDto {
+  fileName: string;
+  filePath: string;
+}
+
+export class CreateUploadResponseDto {
+  id: number;
+  createdAt: Date;
+  updatedAt: Date;
+  fileName: string;
+  status: string;
+}
+
+export class UploadDto extends CreateUploadResponseDto {}
+
+export class UploadPaginate {
+  uploads: UploadDto[];
+  total: number;
+}
+
+export class SearchUploadRequestDto {
+  searchStr: string;
+  page: string;
+  pageSize: string;
+  status: string;
+  orders: string;
 }
 
 export class SearchResult {
