@@ -4,70 +4,76 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
-import * as fs from 'fs';
+import { promises as fs } from 'fs';
 import puppeteer from 'puppeteer';
 import {
-  CreateUploadDto,
+  CreateUploadRequestDto,
+  CreateUploadResponseDto,
   SearchEngine,
   SearchRequestDto,
   SearchSingleKeywordResultDto,
   SearchStatus,
+  SearchUploadRequestDto,
+  UploadPaginate,
   UploadStatus,
 } from './dtos/google-scraper.dto';
-import { scrollPageFn } from 'src/shared/helper/page.helper';
+import { scrollPageFn } from 'src/shared/helper/search.helper';
+import { FileHelper } from 'src/shared/helper/file.helper';
+import { paginateFn } from 'src/shared/helper/pagination.helper';
 import {
-  htmlCacheFileName,
-  writeFilePath,
-} from 'src/shared/helper/file.helper';
-
-const DEFAULT_NAVIGATION_TIMEOUT_IN_MILLISECONDS = 30 * 1000; // 30 seconds
-const DEFAULT_PAGE_SCROLL_TIMEOUT_IN_MILLISECONDS = 5 * 1000; // 5 seconds
-const CHUNK_SIZE = 5;
+  CACHE_DIR_NAME,
+  CHUNK_SIZE,
+  DEFAULT_NAVIGATION_TIMEOUT_IN_MILLISECONDS,
+  DEFAULT_PAGE_SCROLL_TIMEOUT_IN_MILLISECONDS,
+} from 'src/shared/helper/constants';
 
 @Injectable()
 export class GoogleScraperService {
   private prisma = new PrismaClient();
 
-  // upload file
-  async uploadFile(fileDto: CreateUploadDto): Promise<any> {
-    fs.readFile(fileDto.filePath, 'utf8', async (err, content) => {
-      if (err) {
-        throw new InternalServerErrorException(
-          'error when importing upload file',
-          err.message,
-        );
-      }
+  private cacheDir = CACHE_DIR_NAME;
 
-      try {
-        const response = await this.prisma.upload.create({
-          data: {
-            fileName: fileDto.fileName,
-            filePath: fileDto.filePath,
-            status: UploadStatus.Uploaded,
-            searchResults: {
-              createMany: {
-                data: content.split('\n').map((keyword) => {
-                  return {
-                    keyword: keyword.trimEnd(),
-                    status: SearchStatus.Waiting,
-                    searchEngine: SearchEngine.Google,
-                  };
-                }),
-              },
+  // upload file
+  async uploadFile(
+    fileDto: CreateUploadRequestDto,
+  ): Promise<CreateUploadResponseDto> {
+    try {
+      const fileContent = await fs.readFile(fileDto.filePath, 'utf8');
+
+      const response = await this.prisma.upload.create({
+        data: {
+          fileName: fileDto.fileName,
+          filePath: fileDto.filePath,
+          status: UploadStatus.Uploaded,
+          searchResults: {
+            createMany: {
+              data: fileContent.split('\n').map((keyword) => {
+                return {
+                  keyword: keyword.trimEnd(),
+                  status: SearchStatus.Waiting,
+                  searchEngine: SearchEngine.Google,
+                };
+              }),
             },
           },
-        });
+        },
+      });
 
-        this.searchAndSaveResult(response.id);
+      this.searchAndSaveResult(response.id);
 
-        return response;
-      } catch (err) {
-        throw new InternalServerErrorException(
-          'error when inserting upload records',
-          err,
-        );
-      }
-    });
+      return {
+        id: response.id,
+        createdAt: response.createdAt,
+        updatedAt: response.updatedAt,
+        fileName: response.fileName,
+        status: response.status,
+      };
+    } catch (err) {
+      throw new InternalServerErrorException(
+        'error when inserting upload records',
+        err,
+      );
+    }
   }
 
   // search all keywords in each upload
@@ -119,7 +125,7 @@ export class GoogleScraperService {
     keyword: string,
   ): Promise<SearchSingleKeywordResultDto> {
     const browser = await puppeteer.launch({
-      headless: false,
+      headless: 'new',
     });
     try {
       const page = await browser.newPage();
@@ -130,7 +136,7 @@ export class GoogleScraperService {
       await Promise.all([
         page.waitForNavigation(),
         page.goto(SearchEngine.Google),
-        page.setViewport({ width: 1080, height: 1024 }),
+        // page.setViewport({ width: 1080, height: 1024 }),
       ]);
 
       Logger.debug(`start searching for keyword: ${keyword}`);
@@ -151,8 +157,10 @@ export class GoogleScraperService {
 
       const rawHtml = await page.content();
 
-      const cachePath = writeFilePath(htmlCacheFileName(keyword));
-      this.writeResultCache(rawHtml, cachePath);
+      const cachePath = FileHelper.getAbsolutePath(
+        `${this.cacheDir}/${FileHelper.createHtmlFileName(keyword)}`,
+      );
+      await FileHelper.writeResultCache(rawHtml, cachePath);
 
       Logger.debug(`Complete searching for keyword: ${keyword}`);
       return {
@@ -181,17 +189,6 @@ export class GoogleScraperService {
     }
   }
 
-  async writeResultCache(data: any, writePath: string): Promise<any> {
-    fs.writeFile(writePath, data, (err) => {
-      if (err) {
-        throw new InternalServerErrorException(
-          'error when writing result cache',
-          err.message,
-        );
-      }
-    });
-  }
-
   async processSearchInChunks(
     keywords: SearchRequestDto[] = [],
   ): Promise<SearchSingleKeywordResultDto[]> {
@@ -206,5 +203,61 @@ export class GoogleScraperService {
       results.push(...res);
     }
     return results;
+  }
+
+  async searchUploads(
+    payload: SearchUploadRequestDto,
+  ): Promise<UploadPaginate> {
+    try {
+      const queryObj = {};
+      const filterObj = {};
+      let orderByObj: Record<string, any> = {
+        createdAt: 'desc',
+      };
+
+      if (payload.searchStr) {
+        filterObj['fileName'] = {
+          contains: payload.searchStr,
+        };
+      }
+
+      if (
+        payload.status &&
+        Object.values(UploadStatus).includes(payload.status as UploadStatus)
+      ) {
+        filterObj['status'] = {
+          equals: payload.status,
+        };
+      }
+
+      if (Object.keys(filterObj).length > 0) {
+        queryObj['where'] = filterObj;
+      }
+
+      const count = await this.prisma.upload.count(queryObj);
+
+      if (payload.orders) {
+        const [key, val] = payload.orders.split('*');
+        orderByObj = {
+          [key]: val,
+        };
+      }
+      queryObj['orderBy'] = orderByObj;
+
+      const uploadRecords = await this.prisma.upload.findMany({
+        ...queryObj,
+        ...paginateFn(payload.page, payload.pageSize),
+      });
+
+      return {
+        uploads: uploadRecords,
+        total: count,
+      };
+    } catch (err) {
+      throw new InternalServerErrorException(
+        'error when searching upload records',
+        err,
+      );
+    }
   }
 }
