@@ -9,12 +9,16 @@ import puppeteer from 'puppeteer';
 import {
   CreateUploadRequestDto,
   CreateUploadResponseDto,
+  Paginate,
+  QueryObj,
   SearchEngine,
   SearchRequestDto,
+  SearchResult,
+  SearchResultRequestDto,
   SearchSingleKeywordResultDto,
   SearchStatus,
   SearchUploadRequestDto,
-  UploadPaginate,
+  UploadDto,
   UploadStatus,
 } from './dtos/google-scraper.dto';
 import { scrollPageFn } from 'src/shared/helper/search.helper';
@@ -95,22 +99,7 @@ export class GoogleScraperService {
       });
 
     try {
-      const res = await this.processSearchInChunks(keywords);
-      await this.prisma.$transaction(
-        res.map((el: SearchSingleKeywordResultDto) => {
-          return this.prisma.searchResult.updateMany({
-            where: {
-              id: el.id,
-            },
-            data: {
-              searchedAt: el.searchedAt,
-              status: el.status,
-              result: el.result as any as Prisma.JsonValue,
-              pageSnapshotPath: el.pageSnapshotPath,
-            },
-          });
-        }),
-      );
+      await this.processSearchInChunks(keywords);
     } catch (err) {
       throw new InternalServerErrorException(
         'error searching keyword in search engine',
@@ -148,15 +137,23 @@ export class GoogleScraperService {
         await scrollPageFn(DEFAULT_PAGE_SCROLL_TIMEOUT_IN_MILLISECONDS, page),
       ]);
 
+      const adDivs = await page.$$eval('div[data-dtld]', (divs: any) => {
+        return divs.map((div) => div.getAttribute('data-dtld'));
+      });
+
+      const adSpans = await page.$$eval('span[data-dtld]', (divs: any) => {
+        return divs.map((div) => div.getAttribute('data-dtld'));
+      });
+
+      const advertiserSet = new Set([...adDivs, ...adSpans]);
+
       const stat = await page.$eval('#result-stats', (el: any) =>
         el.innerText?.trimEnd(),
       );
-      console.log('stat', stat);
       const allLinks = await page.$$('a[href]');
-      console.log('allLinks', allLinks.length);
 
+      // save raw HTML
       const rawHtml = await page.content();
-
       const cachePath = FileHelper.getAbsolutePath(
         `${this.cacheDir}/${FileHelper.createHtmlFileName(keyword)}`,
       );
@@ -169,7 +166,7 @@ export class GoogleScraperService {
         searchedAt: new Date(),
         status: SearchStatus.Completed,
         result: {
-          totalNumberOfAdWords: 1,
+          totalNumberOfAdWordsAdvertisers: advertiserSet.size,
           totalNumberOfLinks: allLinks.length,
           totalSearchResult: stat,
         },
@@ -191,8 +188,7 @@ export class GoogleScraperService {
 
   async processSearchInChunks(
     keywords: SearchRequestDto[] = [],
-  ): Promise<SearchSingleKeywordResultDto[]> {
-    const results = [];
+  ): Promise<void> {
     for (let i = 0; i < keywords.length; i += CHUNK_SIZE) {
       const chunk = keywords.slice(i, i + CHUNK_SIZE);
       const res = await Promise.all(
@@ -200,24 +196,40 @@ export class GoogleScraperService {
           return this.searchSingleKeyword(el.id, el.keyword);
         }),
       );
-      results.push(...res);
+
+      // update result in chunk
+      await this.prisma.$transaction(
+        res.map((el: SearchSingleKeywordResultDto) => {
+          return this.prisma.searchResult.updateMany({
+            where: {
+              id: el.id,
+            },
+            data: {
+              searchedAt: el.searchedAt,
+              status: el.status,
+              result: el.result as any as Prisma.JsonValue,
+              pageSnapshotPath: el.pageSnapshotPath,
+            },
+          });
+        }),
+      );
     }
-    return results;
   }
 
   async searchUploads(
     payload: SearchUploadRequestDto,
-  ): Promise<UploadPaginate> {
+  ): Promise<Paginate<UploadDto>> {
     try {
-      const queryObj = {};
-      const filterObj = {};
+      const queryObj: QueryObj = {};
+      const whereObj: Record<string, any> = {};
       let orderByObj: Record<string, any> = {
-        createdAt: 'desc',
+        id: 'desc',
       };
 
       if (payload.searchStr) {
-        filterObj['fileName'] = {
+        whereObj['fileName'] = {
           contains: payload.searchStr,
+          mode: 'insensitive',
         };
       }
 
@@ -225,13 +237,13 @@ export class GoogleScraperService {
         payload.status &&
         Object.values(UploadStatus).includes(payload.status as UploadStatus)
       ) {
-        filterObj['status'] = {
+        whereObj['status'] = {
           equals: payload.status,
         };
       }
 
-      if (Object.keys(filterObj).length > 0) {
-        queryObj['where'] = filterObj;
+      if (Object.keys(whereObj).length > 0) {
+        queryObj['where'] = whereObj;
       }
 
       const count = await this.prisma.upload.count(queryObj);
@@ -244,18 +256,77 @@ export class GoogleScraperService {
       }
       queryObj['orderBy'] = orderByObj;
 
-      const uploadRecords = await this.prisma.upload.findMany({
+      const uploadRecords: UploadDto[] = await this.prisma.upload.findMany({
         ...queryObj,
         ...paginateFn(payload.page, payload.pageSize),
       });
 
       return {
-        uploads: uploadRecords,
+        data: uploadRecords,
         total: count,
       };
     } catch (err) {
       throw new InternalServerErrorException(
         'error when searching upload records',
+        err,
+      );
+    }
+  }
+
+  async searchResults(
+    payload: SearchResultRequestDto,
+  ): Promise<Paginate<SearchResult>> {
+    try {
+      const queryObj: QueryObj = {};
+      const whereObj: Record<string, any> = {};
+      let orderByObj: Record<string, any> = {
+        id: 'desc',
+      };
+
+      if (payload.searchStr) {
+        whereObj['keyword'] = {
+          contains: payload.searchStr,
+          mode: 'insensitive',
+        };
+      }
+
+      if (
+        payload.status &&
+        [SearchStatus.Completed, SearchStatus.Error].includes(
+          payload.status as SearchStatus,
+        )
+      ) {
+        whereObj['status'] = {
+          equals: payload.status,
+        };
+      }
+
+      if (Object.keys(whereObj).length > 0) {
+        queryObj['where'] = whereObj;
+      }
+
+      const count = await this.prisma.searchResult.count(queryObj);
+
+      if (payload.orders) {
+        const [key, val] = payload.orders.split('*');
+        orderByObj = {
+          [key]: val,
+        };
+      }
+      queryObj['orderBy'] = orderByObj;
+
+      const data: SearchResult[] = await this.prisma.searchResult.findMany({
+        ...queryObj,
+        ...paginateFn(payload.page, payload.pageSize),
+      });
+
+      return {
+        data: data,
+        total: count,
+      };
+    } catch (err) {
+      throw new InternalServerErrorException(
+        'error when searching result records',
         err,
       );
     }
