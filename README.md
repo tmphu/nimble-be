@@ -32,6 +32,11 @@
 $ yarn install
 ```
 
+## Migrate Database
+```bash
+$ npx prisma db push
+```
+
 ## Running the app
 
 ```bash

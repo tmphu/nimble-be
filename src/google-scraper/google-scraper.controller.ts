@@ -12,7 +12,9 @@ import { FileHelper } from 'src/shared/helper/file.helper';
 import { GoogleScraperService } from './google-scraper.service';
 import {
   CreateUploadResponseDto,
-  UploadPaginate,
+  Paginate,
+  SearchResult,
+  UploadDto,
 } from './dtos/google-scraper.dto';
 import { UPLOADS_DIR_NAME } from 'src/shared/helper/constants';
 
@@ -50,8 +52,25 @@ export class GoogleScraperController {
     @Query('pageSize') pageSize: string,
     @Query('status') status: string,
     @Query('orders') orders: string,
-  ): Promise<UploadPaginate> {
+  ): Promise<Paginate<UploadDto>> {
     return this.service.searchUploads({
+      searchStr,
+      page,
+      pageSize,
+      status,
+      orders,
+    });
+  }
+
+  @Get('/results/search')
+  async searchResults(
+    @Query('search') searchStr: string,
+    @Query('page') page: string,
+    @Query('pageSize') pageSize: string,
+    @Query('status') status: string,
+    @Query('orders') orders: string,
+  ): Promise<Paginate<SearchResult>> {
+    return this.service.searchResults({
       searchStr,
       page,
       pageSize,

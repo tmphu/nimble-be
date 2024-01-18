@@ -1,3 +1,5 @@
+import { JsonValue } from '@prisma/client/runtime/library';
+
 export enum UploadStatus {
   Uploaded = 'UPLOADED',
   Error = 'ERROR',
@@ -13,6 +15,13 @@ export enum SearchStatus {
 export enum SearchEngine {
   Google = 'https://google.com',
 }
+
+export type PaginateObj = { skip?: number; take?: number };
+export type QueryObj = {
+  where?: Record<string, any>;
+  orderBy?: Record<string, any>;
+  select?: Record<string, any>;
+};
 
 export class Upload {
   id: number;
@@ -36,10 +45,12 @@ export class CreateUploadResponseDto {
   status: string;
 }
 
-export class UploadDto extends CreateUploadResponseDto {}
+export class UploadDto extends CreateUploadResponseDto {
+  filePath: string;
+}
 
-export class UploadPaginate {
-  uploads: UploadDto[];
+export class Paginate<T> {
+  data: T[];
   total: number;
 }
 
@@ -51,6 +62,8 @@ export class SearchUploadRequestDto {
   orders: string;
 }
 
+export class SearchResultRequestDto extends SearchUploadRequestDto {}
+
 export class SearchResult {
   id: number;
   createdAt: Date;
@@ -59,7 +72,7 @@ export class SearchResult {
   searchedAt?: Date;
   searchEngine: string;
   status: string;
-  result?: SearchData | Record<string, any>;
+  result?: SearchData | JsonValue;
   pageSnapshotPath?: string;
   uploadId: number;
 }
@@ -72,7 +85,7 @@ export class SearchRequestDto {
 }
 
 export class SearchData {
-  totalNumberOfAdWords: number;
+  totalNumberOfAdWordsAdvertisers: number;
   totalNumberOfLinks: number;
   totalSearchResult: string;
 }
