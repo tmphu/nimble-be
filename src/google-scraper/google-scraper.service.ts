@@ -3,7 +3,7 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { promises as fs } from 'fs';
 import puppeteer from 'puppeteer';
 import {
@@ -21,19 +21,18 @@ import {
   UploadDto,
   UploadStatus,
 } from './dtos/google-scraper.dto';
-import { scrollPageFn } from 'src/shared/helper/search.helper';
-import { FileHelper } from 'src/shared/helper/file.helper';
-import { paginateFn } from 'src/shared/helper/pagination.helper';
+import { SearchHelper, FileHelper, PaginationHelper } from '../shared';
 import {
   CACHE_DIR_NAME,
   CHUNK_SIZE,
   DEFAULT_NAVIGATION_TIMEOUT_IN_MILLISECONDS,
   DEFAULT_PAGE_SCROLL_TIMEOUT_IN_MILLISECONDS,
-} from 'src/shared/helper/constants';
+} from '../shared';
+import { PrismaService } from '../prisma-client/prisma.service';
 
 @Injectable()
 export class GoogleScraperService {
-  private prisma = new PrismaClient();
+  constructor(private readonly prisma: PrismaService) {}
 
   private cacheDir = CACHE_DIR_NAME;
 
@@ -134,7 +133,10 @@ export class GoogleScraperService {
         page.waitForNavigation(),
         await page.type('textarea[name="q"]', keyword),
         await page.keyboard.press('Enter'),
-        await scrollPageFn(DEFAULT_PAGE_SCROLL_TIMEOUT_IN_MILLISECONDS, page),
+        await SearchHelper.scrollPageFn(
+          DEFAULT_PAGE_SCROLL_TIMEOUT_IN_MILLISECONDS,
+          page,
+        ),
       ]);
 
       const adDivs = await page.$$eval('div[data-dtld]', (divs: any) => {
@@ -148,7 +150,7 @@ export class GoogleScraperService {
       const advertiserSet = new Set([...adDivs, ...adSpans]);
 
       const stat = await page.$eval('#result-stats', (el: any) =>
-        el.innerText?.trimEnd(),
+        el?.innerText?.trimEnd(),
       );
       const allLinks = await page.$$('a[href]');
 
@@ -258,7 +260,7 @@ export class GoogleScraperService {
 
       const uploadRecords: UploadDto[] = await this.prisma.upload.findMany({
         ...queryObj,
-        ...paginateFn(payload.page, payload.pageSize),
+        ...PaginationHelper.paginateFn(payload.page, payload.pageSize),
       });
 
       return {
@@ -317,7 +319,7 @@ export class GoogleScraperService {
 
       const data: SearchResult[] = await this.prisma.searchResult.findMany({
         ...queryObj,
-        ...paginateFn(payload.page, payload.pageSize),
+        ...PaginationHelper.paginateFn(payload.page, payload.pageSize),
       });
 
       return {

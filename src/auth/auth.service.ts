@@ -17,13 +17,12 @@ import * as bcrypt from 'bcrypt';
 @Injectable()
 export class AuthService {
   constructor(
-    private config: ConfigService,
-    private jwt: JwtService,
+    private configService: ConfigService,
+    private jwtService: JwtService,
   ) {}
   private prisma = new PrismaClient();
 
-  private secretKey = this.config.get('SECRET_KEY') || 'DUMMY';
-  private expiryDuration = this.config.get('EXPIRY_DURATION') || '30d';
+  private secretKey = this.configService.get('SECRET_KEY') || 'DUMMY';
 
   async login(email: string, password: string): Promise<UserLoginResponseDto> {
     try {
@@ -42,15 +41,10 @@ export class AuthService {
         throw new NotFoundException('Incorrect username or password');
       }
 
-      const token = this.jwt.sign(
-        {
-          data: {
-            name: user.name,
-            email: user.email,
-          },
-        },
-        { secret: this.secretKey, expiresIn: this.expiryDuration },
-      );
+      const token = this.jwtService.sign({
+        name: user.name,
+        email: user.email,
+      });
       return {
         user: {
           id: user.id,
@@ -95,7 +89,7 @@ export class AuthService {
 
   async validateToken(token: string): Promise<boolean> {
     try {
-      await this.jwt.verify(token, {
+      await this.jwtService.verify(token, {
         secret: this.secretKey,
       });
       return true;
