@@ -6,7 +6,8 @@ Technologies:
 2. Testing framework: Jest
 3. Authentication: JWT
 4. ORM: Prisma
-5. Browser control: Puppeteer
+5. Database: PostgreSQL
+6. Browser control: Puppeteer
 
 ## Main Features
 1. Log in: ```POST``` ```/api/v1/auth/login```
