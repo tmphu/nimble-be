@@ -4,6 +4,7 @@ import {
   Post,
   Query,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -17,6 +18,7 @@ import {
   UploadDto,
 } from './dtos/google-scraper.dto';
 import { UPLOADS_DIR_NAME } from 'src/shared/helper/constants';
+import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 
 @Controller({ path: 'api/v1/scraper/google' })
 export class GoogleScraperController {
@@ -24,6 +26,7 @@ export class GoogleScraperController {
 
   private uploadDir = UPLOADS_DIR_NAME;
 
+  @UseGuards(JwtAuthGuard)
   @Post('/uploads')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -45,6 +48,7 @@ export class GoogleScraperController {
     });
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get('/uploads/search')
   async searchUploads(
     @Query('search') searchStr: string,
@@ -62,6 +66,7 @@ export class GoogleScraperController {
     });
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get('/results/search')
   async searchResults(
     @Query('search') searchStr: string,
