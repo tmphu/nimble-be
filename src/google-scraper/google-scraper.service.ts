@@ -149,9 +149,10 @@ export class GoogleScraperService {
 
       const advertiserSet = new Set([...adDivs, ...adSpans]);
 
-      const stat = await page.$eval('#result-stats', (el: any) =>
-        el?.innerText?.trimEnd(),
-      );
+      const stat = await page.evaluate(() => {
+        const el = document.getElementById('result-stats');
+        return el ? el.innerText.trimEnd() : null;
+      });
       const allLinks = await page.$$('a[href]');
 
       // save raw HTML
